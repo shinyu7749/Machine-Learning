@@ -1,0 +1,16 @@
+PATH of POS/CONTCAR,Number of C,VN,EN,DP,AR,AN,Number of H,VN,EN,DP,AR,AN,Number of N,VN,EN,DP,AR,AN,Number of O,VN,EN,DP,AR,AN,Number of Si,VN,EN,DP,AR,AN,Optimized,with matrix or not,distance between C and closest N,distance between O1 and closest N,distance between O2 and closest N,Bonding angle O-C-O,EN difference between C and O,Distance between C and surface H,Distance between O1 and surface H,Distance between O2 and surface H,E0 (eV)
+Shinyu/I_TRI_CO2/1/POSCAR,10,,,,,,18,,,,,,3,,,,,,0,,,,,,1,,,,,,0,1,1.58609,2.39737,1.56139,,,,,,-1158.4777
+Shinyu/I_TRI_CO2/1/CONTCAR,10,,,,,,18,,,,,,3,,,,,,0,,,,,,1,,,,,,1,1,4.16545,4.21506,4.44303,,,,,,-1183.8908
+Shinyu/I_TRI_CO2/2/POSCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,0,1,1.32428,1.61786,1.88777,,,,,,-1174.8504
+Shinyu/I_TRI_CO2/2/CONTCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,1,1,2.74757,3.03746,3.06392,,,,,,-1184.0560
+Shinyu/I_TRI_CO2/4/POSCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,0,1,1.43938,1.88518,1.8015,,,,,,-1155.3545
+Shinyu/I_TRI_CO2/4_2/POSCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,0,1,4.28138,4.41214,4.46924,,,,,,-1183.9091
+Shinyu/I_TRI_CO2/4_2/CONTCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,1,1,4.26928,4.29733,4.56103,,,,,,-1183.9342
+Shinyu/I_PEI4C_CO2/1/POSCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,0,1,1.43002,1.80682,1.90733,,,,,,-1092.0782
+Shinyu/I_PEI4C_CO2/1/CONTCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,1,1,3.3066,3.98792,3.51355,,,,,,-1115.6641
+Shinyu/I_PEI4C_CO2/2/POSCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,0,1,1.21373,1.73997,1.73924,,,,,,-1090.6330
+Shinyu/I_PEI4C_CO2/2/CONTCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,1,1,3.31531,3.47451,3.96078,,,,,,-1115.6989
+Shinyu/I_PEI4C_CO2/4/POSCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,0,1,1.20123,2.07704,1.20388,,,,,,-1095.0674
+Shinyu/I_PEI4C_CO2/4/CONTCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,1,1,2.93791,3.16275,3.22317,,,,,,-1115.5468
+Shinyu/I_PEI4C_CO2/6/POSCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,0,1,1.74695,2.00703,2.22553,,,,,,-1108.1851
+Shinyu/I_PEI4C_CO2/6/CONTCAR,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,1,1,3.80425,3.99793,3.96091,,,,,,-1115.4706
