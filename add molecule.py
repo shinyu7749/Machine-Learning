@@ -1,476 +1,166 @@
-{
- "cells": [
-  {
-   "cell_type": "code",
-   "execution_count": 10,
-   "id": "952c146f",
-   "metadata": {
-    "scrolled": true
-   },
-   "outputs": [
-    {
-     "name": "stdout",
-     "output_type": "stream",
-     "text": [
-      "\n",
-      "Generated candidate new positions for atomA:\n",
-      "  Candidate 0: [ 3.87176679  0.5110081  18.70862154]\n",
-      "  Candidate 1: [ 6.56553072 -0.42714798 17.2954954 ]\n",
-      "  Candidate 2: [ 4.5472016   2.71321214 15.01210661]\n",
-      "  Candidate 3: [ 7.309012    3.27860849 16.63524438]\n",
-      "  Candidate 4: [ 6.70382736 -0.22339236 16.4468085 ]\n",
-      "\n",
-      "Do you want to manually enter a position? (y/n): n\n",
-      "Choose candidate index (0 to 4): 2\n",
-      "POSCAR final saved\n"
-     ]
-    }
-   ],
-   "source": [
-    "from pymatgen.core import Structure\n",
-    "from pymatgen.io.vasp import Poscar\n",
-    "import numpy as np\n",
-    "\n",
-    "### ---------- STEP 1: Merge Molecule + Matrix ----------\n",
-    "def merge_structures(matrix_file, molecule_file, translation_vector=None):\n",
-    "    # Load structures\n",
-    "    matrix_struct = Structure.from_file(matrix_file)\n",
-    "    mol_struct = Structure.from_file(molecule_file)\n",
-    "\n",
-    "    mol_cart_coords = mol_struct.cart_coords.copy()\n",
-    "\n",
-    "    # Optional translation\n",
-    "    if translation_vector is not None:\n",
-    "        mol_cart_coords += np.array(translation_vector)\n",
-    "\n",
-    "    # Convert molecule coords to matrix fractional basis\n",
-    "    triclinic_matrix = matrix_struct.lattice.matrix\n",
-    "    inv_triclinic = np.linalg.inv(triclinic_matrix)\n",
-    "    mol_frac_coords = np.dot(mol_cart_coords, inv_triclinic)\n",
-    "\n",
-    "    # Add molecule atoms to matrix\n",
-    "    for i, site in enumerate(mol_struct.sites):\n",
-    "        matrix_struct.append(site.species_string, mol_frac_coords[i], coords_are_cartesian=False)\n",
-    "\n",
-    "    return matrix_struct\n",
-    "\n",
-    "\n",
-    "### ---------- STEP 2: Select Atoms for Manipulation ----------\n",
-    "def select_atoms(struct, indices):\n",
-    "    \"\"\"\n",
-    "    Extracts Cartesian positions of selected atoms.\n",
-    "    indices: list of atom indices (0-based, as in pymatgen Structure)\n",
-    "    \"\"\"\n",
-    "    return np.array([struct.cart_coords[i] for i in indices])\n",
-    "\n",
-    "\n",
-    "### ---------- STEP 3: Rotate Selected Atoms ----------\n",
-    "def rotate_atoms(positions, pivot_index, axis='x', degree=-90):\n",
-    "    \"\"\"\n",
-    "    Rotate atoms around a pivot atom.\n",
-    "    positions: np.ndarray (N,3)\n",
-    "    pivot_index: int, index of pivot atom in positions\n",
-    "    axis: 'x', 'y', 'z'\n",
-    "    degree: rotation angle in degrees\n",
-    "    \"\"\"\n",
-    "    theta = np.radians(degree)\n",
-    "\n",
-    "    # Rotation matrices\n",
-    "    Rx = np.array([[1, 0, 0],\n",
-    "                   [0, np.cos(theta), -np.sin(theta)],\n",
-    "                   [0, np.sin(theta),  np.cos(theta)]])\n",
-    "    Ry = np.array([[np.cos(theta), 0, np.sin(theta)],\n",
-    "                   [0, 1, 0],\n",
-    "                   [-np.sin(theta), 0, np.cos(theta)]])\n",
-    "    Rz = np.array([[np.cos(theta), -np.sin(theta), 0],\n",
-    "                   [np.sin(theta),  np.cos(theta), 0],\n",
-    "                   [0, 0, 1]])\n",
-    "\n",
-    "    R = {'x': Rx, 'y': Ry, 'z': Rz}[axis]\n",
-    "\n",
-    "    # Translate pivot to origin\n",
-    "    pivot = positions[pivot_index]\n",
-    "    translated = positions - pivot\n",
-    "\n",
-    "    # Apply rotation\n",
-    "    rotated = np.dot(translated, R.T)\n",
-    "\n",
-    "    # Translate back\n",
-    "    return rotated + pivot\n",
-    "\n",
-    "\n",
-    "### ---------- STEP 4: Distance Constraint Candidates ----------\n",
-    "def generate_distance_candidates(struct, atomA_idx, atomB_idx, target_d, n_candidates=5):\n",
-    "    \"\"\"\n",
-    "    Generate n_candidates random Cartesian positions for atomA, \n",
-    "    at distance target_d from atomB (atomB is fixed).\n",
-    "    \"\"\"\n",
-    "    posB = struct.cart_coords[atomB_idx]\n",
-    "\n",
-    "    candidates = []\n",
-    "    for _ in range(n_candidates):\n",
-    "        # Random direction using normal distribution\n",
-    "        vec = np.random.normal(size=3)\n",
-    "        vec /= np.linalg.norm(vec)  # normalize to unit vector\n",
-    "\n",
-    "        new_posA = posB + target_d * vec\n",
-    "        candidates.append(new_posA)\n",
-    "\n",
-    "    return candidates\n",
-    "\n",
-    "\n",
-    "### ---------- STEP 5: Translate Group ----------\n",
-    "def translate_group(positions, old_ref, new_ref):\n",
-    "    \"\"\"\n",
-    "    Translate a group of atoms so that old_ref goes to new_ref.\n",
-    "    \"\"\"\n",
-    "    translation = new_ref - old_ref\n",
-    "    return positions + translation\n",
-    "\n",
-    "\n",
-    "### ---------- STEP 6: Export Final POSCAR ----------\n",
-    "def update_structure(struct, indices, new_positions, output_file=\"POSCAR_final\"):\n",
-    "    for i, idx in enumerate(indices):\n",
-    "        struct.replace(\n",
-    "            idx,\n",
-    "            struct[idx].species_string,\n",
-    "            new_positions[i],\n",
-    "            coords_are_cartesian=True\n",
-    "        )\n",
-    "    # Manually remove selective dynamics if present\n",
-    "    for site in struct.sites:\n",
-    "        if \"selective_dynamics\" in site.properties:\n",
-    "            site.properties.pop(\"selective_dynamics\", None)\n",
-    "\n",
-    "    Poscar(struct).write_file(output_file)\n",
-    "\n",
-    "\n",
-    "\n",
-    "### ---------- MAIN WORKFLOW ----------\n",
-    "if __name__ == \"__main__\":\n",
-    "    # 1. Merge + Translation\n",
-    "    merged = merge_structures(\"./6_4/CONTCAR\", \"./CO2_molecule/CONTCAR\", translation_vector=[0, 0, 0])\n",
-    "\n",
-    "    # 2. Select atoms (example: first 3 atoms from molecule part = 190, 191, 192 below)\n",
-    "    selected_indices = [206, 207, 208]   # must be adapted\n",
-    "    selected_positions = select_atoms(merged, selected_indices)\n",
-    "\n",
-    "    # 3. Rotate around 3rd atom\n",
-    "    rotated_positions = rotate_atoms(selected_positions, pivot_index=2, axis='x', degree=-135)\n",
-    "\n",
-    "    # 4. Distance constraint between atomA and fixed atomB\n",
-    "    atomA_idx = 206\n",
-    "    atomB_idx = 203\n",
-    "    candidates = generate_distance_candidates(merged, atomA_idx, atomB_idx, target_d=2.5)\n",
-    "\n",
-    "    print(\"\\nGenerated candidate new positions for atomA:\")\n",
-    "    for i, cand in enumerate(candidates):\n",
-    "        print(f\"  Candidate {i}: {cand}\")\n",
-    "\n",
-    "    choice = input(\"\\nDo you want to manually enter a position? (y/n): \").strip().lower()\n",
-    "\n",
-    "    if choice == \"y\":\n",
-    "        manual_input = input(\"Enter Cartesian coordinates as x y z (separated by spaces): \")\n",
-    "        new_ref = np.array([float(x) for x in manual_input.split()])\n",
-    "\n",
-    "        # Compute and print distance\n",
-    "        posB = merged.cart_coords[atomB_idx]\n",
-    "        dist = np.linalg.norm(new_ref - posB)\n",
-    "        print(f\"Distance between atomA (manual) and atomB: {dist:.3f} Å\")\n",
-    "    else:\n",
-    "        idx = int(input(f\"Choose candidate index (0 to {len(candidates)-1}): \"))\n",
-    "        new_ref = candidates[idx]\n",
-    "\n",
-    "    old_ref = merged.cart_coords[atomA_idx]\n",
-    "\n",
-    "    # 5. Translate whole molecule to desired distance\n",
-    "    translated_positions = translate_group(rotated_positions, old_ref, new_ref)\n",
-    "\n",
-    "    # 6. Update structure and save\n",
-    "    update_structure(merged, selected_indices, translated_positions, output_file=\"POSCAR final\")\n",
-    "    print(\"POSCAR final saved\")\n"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 4,
-   "id": "9415e4d4",
-   "metadata": {},
-   "outputs": [
-    {
-     "name": "stdout",
-     "output_type": "stream",
-     "text": [
-      "Index Species Origin               X           Y           Z\n",
-      "------------------------------------------------------------\n",
-      "0     O       matrix        1.538929    0.828878    3.196751\n",
-      "1     O       matrix        0.255295    0.016987   10.295235\n",
-      "2     O       matrix       -9.433901   -0.019815  -10.380739\n",
-      "3     O       matrix      -10.902786    5.519546  -14.708257\n",
-      "4     O       matrix       -0.640708    3.916088   -6.541150\n",
-      "5     O       matrix        6.230594    0.068940   10.331568\n",
-      "6     O       matrix        4.521702    6.072348    3.278788\n",
-      "7     O       matrix        3.275618    5.176321   10.174823\n",
-      "8     O       matrix        0.133961    3.305672    3.144554\n",
-      "9     O       matrix       -1.163996    2.415780   10.312661\n",
-      "10    O       matrix       -2.779357    8.489448    3.318677\n",
-      "11    O       matrix       -4.155475    7.693852   10.306423\n",
-      "12    O       matrix        6.187553    3.273656    3.305806\n",
-      "13    O       matrix        4.959250    2.586073   10.500139\n",
-      "14    O       matrix        3.170873    8.469365    3.211465\n",
-      "15    O       matrix        1.880215    7.652706   10.382104\n",
-      "16    O       matrix        4.585597    0.730532    3.220358\n",
-      "17    O       matrix        3.217298   -0.030897   10.250264\n",
-      "18    O       matrix        1.569519    5.937969    3.194371\n",
-      "19    O       matrix        0.262235    5.123384   10.367248\n",
-      "20    O       matrix       10.589834    0.731398    3.271072\n",
-      "21    O       matrix        9.249164   -0.047411   10.339796\n",
-      "22    O       matrix        7.561024    5.913610    3.330465\n",
-      "23    O       matrix        6.143859    4.986148   10.320177\n",
-      "24    O       matrix        2.943071    3.267737    3.219759\n",
-      "25    O       matrix        1.672025    2.447692   10.194546\n",
-      "26    O       matrix        0.047665    8.491149    3.173858\n",
-      "27    O       matrix       -1.343605    7.691339   10.330534\n",
-      "28    O       matrix        8.937813    3.215034    3.308786\n",
-      "29    O       matrix        7.674165    2.423072   10.264164\n",
-      "30    O       matrix        5.953099    8.493394    3.290804\n",
-      "31    O       matrix        4.676396    7.629721   10.345731\n",
-      "32    O       matrix       10.851912    0.804758    8.211443\n",
-      "33    O       matrix        0.131213    1.652538    1.132574\n",
-      "34    O       matrix        7.852202    6.050872    8.339471\n",
-      "35    O       matrix       -2.818385    6.794632    1.360991\n",
-      "36    O       matrix        4.865096    0.884162    8.271597\n",
-      "37    O       matrix        6.244294    1.724871    1.313857\n",
-      "38    O       matrix        1.831059    6.066872    8.272198\n",
-      "39    O       matrix        3.202871    6.843587    1.146239\n",
-      "40    O       matrix        9.260117    3.412896    8.270552\n",
-      "41    O       matrix       -1.578681    4.254647    1.254199\n",
-      "42    O       matrix        6.234551    8.579180    8.244604\n",
-      "43    O       matrix       -4.396850    9.354446    1.217245\n",
-      "44    O       matrix        3.181943    3.367144    8.046779\n",
-      "45    O       matrix        4.687734    4.199292    1.222034\n",
-      "46    O       matrix        0.287119    8.602473    8.314471\n",
-      "47    O       matrix        1.619875    9.455237    1.119184\n",
-      "48    O       matrix        1.577325    0.782868    8.153050\n",
-      "49    O       matrix        2.969267    1.643283    1.170866\n",
-      "50    O       matrix       -1.330988    6.039965    8.302468\n",
-      "51    O       matrix       -0.045614    6.858511    1.158402\n",
-      "52    O       matrix        7.647652    0.785196    8.215122\n",
-      "53    O       matrix        8.869840    1.658882    1.369552\n",
-      "54    O       matrix        4.675646    6.154366    8.177613\n",
-      "55    O       matrix        6.023551    6.825527    1.273699\n",
-      "56    O       matrix        0.187197    3.281834    8.288936\n",
-      "57    O       matrix        1.583093    4.088613    1.122580\n",
-      "58    O       matrix       -2.708930    8.476445    8.234348\n",
-      "59    O       matrix       -1.445820    9.279963    1.171980\n",
-      "60    O       matrix        6.255270    3.258232    8.261946\n",
-      "61    O       matrix        3.245346    8.522509    8.339271\n",
-      "62    O       matrix        4.596547    9.287977    1.194648\n",
-      "63    O       matrix        0.024489    3.191074    5.699388\n",
-      "64    O       matrix       -1.688025    8.500417    5.734040\n",
-      "65    O       matrix        7.249720    5.521994    5.915681\n",
-      "66    O       matrix        1.864824    6.783009    5.757090\n",
-      "67    O       matrix        2.216165    2.634614    5.630509\n",
-      "68    O       matrix        4.394134    0.331102    5.874055\n",
-      "69    O       matrix        8.978669    4.114213    5.602183\n",
-      "70    O       matrix        3.581049    8.261061    5.721798\n",
-      "71    O       matrix        0.637725    1.022102    5.719583\n",
-      "72    O       matrix        0.298809    9.556478    5.506703\n",
-      "73    O       matrix        6.882147    3.298807    5.733528\n",
-      "74    O       matrix        3.994964    6.048242    5.713949\n",
-      "75    O       matrix        7.834264    4.280804   20.667903\n",
-      "76    O       matrix        9.221200    2.388833   20.868374\n",
-      "77    H       matrix        1.392039    0.820093    4.189840\n",
-      "78    H       matrix        0.451041    0.117667   11.237428\n",
-      "79    H       matrix       -1.095773    6.283434    4.326228\n",
-      "80    H       matrix       -2.739795    5.362990   11.322368\n",
-      "81    H       matrix        7.176028    0.339135    4.354770\n",
-      "82    H       matrix        6.069418    0.252365   11.268987\n",
-      "83    H       matrix        4.408439    6.067044    4.316408\n",
-      "84    H       matrix        3.459281    4.978751   11.119240\n",
-      "85    H       matrix        0.086484    3.370647    4.163908\n",
-      "86    H       matrix       -1.084842    2.266112   11.263660\n",
-      "87    H       matrix       -2.543940    8.508647    4.303464\n",
-      "88    H       matrix       -4.010769    7.856753   11.248399\n",
-      "89    H       matrix        6.302351    3.314251    4.341258\n",
-      "90    H       matrix        5.517180    3.421196   10.613408\n",
-      "91    H       matrix        3.254334    8.492141    4.230407\n",
-      "92    H       matrix        1.964756    7.485562   11.330406\n",
-      "93    H       matrix        4.517002    0.744996    4.217955\n",
-      "94    H       matrix        3.229707    0.318242   11.169694\n",
-      "95    H       matrix        1.591927    6.051670    4.182668\n",
-      "96    H       matrix        0.438472    5.019569   11.310913\n",
-      "97    H       matrix       10.805869    0.808123    4.220677\n",
-      "98    H       matrix        9.280060    0.063682   11.298057\n",
-      "99    H       matrix        7.459301    5.911814    4.335140\n",
-      "100   H       matrix        5.943799    5.193743   11.248918\n",
-      "101   H       matrix        2.763076    3.152429    4.214499\n",
-      "102   H       matrix        1.927716    2.303404   11.132887\n",
-      "103   H       matrix        0.168902    8.656624    4.171515\n",
-      "104   H       matrix       -1.413477    7.665596   11.294227\n",
-      "105   H       matrix        8.993514    3.410188    4.365781\n",
-      "106   H       matrix        7.613676    2.255519   11.215012\n",
-      "107   H       matrix        5.751386    8.501747    4.245215\n",
-      "108   H       matrix        4.564732    7.552200   11.303418\n",
-      "109   H       matrix       11.070695    0.819935    7.254363\n",
-      "110   H       matrix        0.204964    1.709750    0.169158\n",
-      "111   H       matrix        7.752776    6.003282    7.333398\n",
-      "112   H       matrix       -2.711702    6.691781    0.404135\n",
-      "113   H       matrix        4.784651    0.816957    7.239186\n",
-      "114   H       matrix        6.425974    1.829680    0.368148\n",
-      "115   H       matrix        1.789270    6.201402    7.273261\n",
-      "116   H       matrix        3.296107    6.881590    0.183436\n",
-      "117   H       matrix        9.317526    3.529962    7.291779\n",
-      "118   H       matrix       -1.701386    4.375053    0.302379\n",
-      "119   H       matrix        6.107011    8.524664    7.285107\n",
-      "120   H       matrix       -4.367499    9.257130    0.256011\n",
-      "121   H       matrix        2.956149    3.248779    7.082433\n",
-      "122   H       matrix        4.673075    4.245320    0.256337\n",
-      "123   H       matrix        0.415415    8.611071    7.341062\n",
-      "124   H       matrix        1.683050    9.430559    0.154051\n",
-      "125   H       matrix        1.384924    0.739590    7.165782\n",
-      "126   H       matrix        2.893683    1.643511    0.206029\n",
-      "127   H       matrix       -1.380083    6.064687    7.331362\n",
-      "128   H       matrix       -0.146785    6.940732    0.198868\n",
-      "129   H       matrix        7.481854    0.645632    7.263878\n",
-      "130   H       matrix        8.609914    1.509713    0.448712\n",
-      "131   H       matrix        4.580009    6.165679    7.161912\n",
-      "132   H       matrix        5.975575    6.862814    0.307164\n",
-      "133   H       matrix        0.045472    3.320153    7.290382\n",
-      "134   H       matrix        1.628675    4.006684    0.159385\n",
-      "135   H       matrix       -2.490562    8.456731    7.250623\n",
-      "136   H       matrix       -1.522800    9.163584    0.214229\n",
-      "137   H       matrix        6.376078    3.198341    7.255451\n",
-      "138   H       matrix        3.303745    8.531383    7.335633\n",
-      "139   H       matrix        4.553380    9.218351    0.229959\n",
-      "140   H       matrix        4.554420    2.945023   14.950011\n",
-      "141   H       matrix        4.267048    1.211899   14.830120\n",
-      "142   H       matrix        6.031971    1.001968   13.084715\n",
-      "143   H       matrix        6.458425    2.720249   13.263829\n",
-      "144   H       matrix        6.890413    2.483724   15.806903\n",
-      "145   H       matrix        6.534860    0.742444   15.763172\n",
-      "146   H       matrix        4.842848    2.640959   17.230900\n",
-      "147   H       matrix        6.721760    0.666472   18.328681\n",
-      "148   H       matrix        7.092864    2.404648   18.325116\n",
-      "149   H       matrix        5.034391    2.880553   19.631569\n",
-      "150   H       matrix        4.566730    1.167232   19.577410\n",
-      "151   H       matrix        6.654141    0.738558   20.821230\n",
-      "152   H       matrix        4.602490    1.247622   22.115920\n",
-      "153   H       matrix        5.120158    2.942740   22.030384\n",
-      "154   H       matrix        6.867236    0.718757   23.214383\n",
-      "155   H       matrix        7.167926    2.465682   23.281569\n",
-      "156   H       matrix        4.865030    1.148114   24.573628\n",
-      "157   H       matrix        6.143922    1.851695   25.324397\n",
-      "158   Mg      matrix       -5.903066   10.276552    2.214209\n",
-      "159   Mg      matrix        4.765433    9.457238    9.293055\n",
-      "160   Mg      matrix       -2.790575    5.108397    2.665944\n",
-      "161   Mg      matrix        7.760649    4.253262    9.290233\n",
-      "162   Mg      matrix        0.063250   10.243451    2.184860\n",
-      "163   Mg      matrix       -1.240211    9.498197    9.252085\n",
-      "164   Mg      matrix        3.070033    5.053278    2.281638\n",
-      "165   Mg      matrix        1.732048    4.248892    9.159728\n",
-      "166   Mg      matrix       -1.449358    2.468671    2.246357\n",
-      "167   Mg      matrix        9.263075    1.637889    9.134077\n",
-      "168   Mg      matrix       -4.395634    7.675903    2.392860\n",
-      "169   Mg      matrix        6.242302    6.838241    9.251095\n",
-      "170   Mg      matrix        4.551172    2.470656    2.307006\n",
-      "171   Mg      matrix        3.165488    1.622479    8.978234\n",
-      "172   Mg      matrix        1.599886    7.670330    2.209421\n",
-      "173   Mg      matrix        0.273848    6.858560    9.293590\n",
-      "174   Mg      matrix       -2.915480   10.277164    2.306711\n",
-      "175   Mg      matrix       -4.220923    9.469406    9.153420\n",
-      "176   Mg      matrix        0.099750    5.076997    2.206232\n",
-      "177   Mg      matrix       -1.246219    4.246121    9.333727\n",
-      "178   Mg      matrix        3.101892   10.230628    2.362215\n",
-      "179   Mg      matrix        1.768313    9.453954    9.350390\n",
-      "180   Mg      matrix        5.981783    5.108991    2.480390\n",
-      "181   Mg      matrix        4.666116    4.320902    8.837255\n",
-      "182   Al      matrix        1.553205    2.463639    2.245226\n",
-      "183   Al      matrix        0.254118    1.644288    9.205746\n",
-      "184   Al      matrix       -1.387743    7.699766    2.328885\n",
-      "185   Al      matrix       -2.743771    6.884459    9.236068\n",
-      "186   Al      matrix        7.549700    2.226126    2.674078\n",
-      "187   Al      matrix        6.271521    1.623832    9.179183\n",
-      "188   Al      matrix        4.561606    7.651876    2.288455\n",
-      "189   Al      matrix        3.252767    6.854129    9.220900\n",
-      "190   C       matrix        0.977187    2.297521    5.689892\n",
-      "191   C       matrix       -0.989709    9.609444    5.716746\n",
-      "192   C       matrix        7.700566    4.320773    5.767461\n",
-      "193   C       matrix        3.124292    7.025385    5.729839\n",
-      "194   C       matrix        5.059454    1.976945   14.756709\n",
-      "195   C       matrix        5.618378    2.001807   13.329792\n",
-      "196   C       matrix        6.065512    1.736399   15.878893\n",
-      "197   C       matrix        6.256166    1.669520   18.333346\n",
-      "198   C       matrix        5.440187    1.852887   19.609220\n",
-      "199   C       matrix        5.498151    1.907367   22.040679\n",
-      "200   C       matrix        6.366736    1.709461   23.278370\n",
-      "201   C       matrix        8.478373    3.298558   20.766080\n",
-      "202   Si      matrix        4.115316    2.551004   12.193380\n",
-      "203   N       matrix        5.386124    1.773682   17.171619\n",
-      "204   N       matrix        6.251934    1.681258   20.811321\n",
-      "205   N       matrix        5.559030    1.895669   24.487488\n",
-      "206   C       molecule     12.529500   13.060200   12.500000\n",
-      "207   O       molecule     11.352647   13.060200   12.500000\n",
-      "208   O       molecule     13.706354   13.060200   12.500000\n"
-     ]
-    }
-   ],
-   "source": [
-    "from pymatgen.core import Structure\n",
-    "import numpy as np\n",
-    "\n",
-    "### ---------- TABLE: Print Structure ----------\n",
-    "def print_structure_table(merged, n_matrix_atoms):\n",
-    "    \"\"\"\n",
-    "    Print a table of the merged structure with index, species, coordinates, and origin.\n",
-    "    \n",
-    "    Parameters:\n",
-    "        merged (Structure): The merged pymatgen Structure\n",
-    "        n_matrix_atoms (int): Number of atoms in the matrix (before molecule atoms were appended)\n",
-    "    \"\"\"\n",
-    "    print(f\"{'Index':<6}{'Species':<8}{'Origin':<10}{'X':>12}{'Y':>12}{'Z':>12}\")\n",
-    "    print(\"-\" * 60)\n",
-    "    \n",
-    "    for idx, site in enumerate(merged):\n",
-    "        origin = \"matrix\" if idx < n_matrix_atoms else \"molecule\"\n",
-    "        x, y, z = site.coords  # Cartesian coords\n",
-    "        print(f\"{idx:<6}{site.species_string:<8}{origin:<10}{x:12.6f}{y:12.6f}{z:12.6f}\")\n",
-    "\n",
-    "matrix_file = \"./6_4/CONTCAR\"\n",
-    "matrix_struct = Structure.from_file(matrix_file)\n",
-    "n_matrix_atoms = len(matrix_struct)\n",
-    "\n",
-    "print_structure_table(merged, n_matrix_atoms)"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "1134c1eb",
-   "metadata": {},
-   "outputs": [],
-   "source": []
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3 (ipykernel)",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.9.12"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
-}
+from pymatgen.core import Structure
+from pymatgen.io.vasp import Poscar
+import numpy as np
+
+### ---------- STEP 1: Merge Molecule + Matrix ----------
+def merge_structures(matrix_file, molecule_file, translation_vector=None):
+    # Load structures
+    matrix_struct = Structure.from_file(matrix_file)
+    mol_struct = Structure.from_file(molecule_file)
+
+    mol_cart_coords = mol_struct.cart_coords.copy()
+
+    # Optional translation
+    if translation_vector is not None:
+        mol_cart_coords += np.array(translation_vector)
+
+    # Convert molecule coords to matrix fractional basis
+    triclinic_matrix = matrix_struct.lattice.matrix
+    inv_triclinic = np.linalg.inv(triclinic_matrix)
+    mol_frac_coords = np.dot(mol_cart_coords, inv_triclinic)
+
+    # Add molecule atoms to matrix
+    for i, site in enumerate(mol_struct.sites):
+        matrix_struct.append(site.species_string, mol_frac_coords[i], coords_are_cartesian=False)
+
+    return matrix_struct
+
+
+### ---------- STEP 2: Select Atoms for Manipulation ----------
+def select_atoms(struct, indices):
+    """
+    Extracts Cartesian positions of selected atoms.
+    indices: list of atom indices (0-based, as in pymatgen Structure)
+    """
+    return np.array([struct.cart_coords[i] for i in indices])
+
+
+### ---------- STEP 3: Rotate Selected Atoms ----------
+def rotate_atoms(positions, pivot_index, axis='x', degree=-90):
+    """
+    Rotate atoms around a pivot atom.
+    positions: np.ndarray (N,3)
+    pivot_index: int, index of pivot atom in positions
+    axis: 'x', 'y', 'z'
+    degree: rotation angle in degrees
+    """
+    theta = np.radians(degree)
+
+    # Rotation matrices
+    Rx = np.array([[1, 0, 0],
+                   [0, np.cos(theta), -np.sin(theta)],
+                   [0, np.sin(theta),  np.cos(theta)]])
+    Ry = np.array([[np.cos(theta), 0, np.sin(theta)],
+                   [0, 1, 0],
+                   [-np.sin(theta), 0, np.cos(theta)]])
+    Rz = np.array([[np.cos(theta), -np.sin(theta), 0],
+                   [np.sin(theta),  np.cos(theta), 0],
+                   [0, 0, 1]])
+
+    R = {'x': Rx, 'y': Ry, 'z': Rz}[axis]
+
+    # Translate pivot to origin
+    pivot = positions[pivot_index]
+    translated = positions - pivot
+
+    # Apply rotation
+    rotated = np.dot(translated, R.T)
+
+    # Translate back
+    return rotated + pivot
+
+
+### ---------- STEP 4: Distance Constraint Candidates ----------
+def generate_distance_candidates(struct, atomA_idx, atomB_idx, target_d, n_candidates=5):
+    """
+    Generate n_candidates random Cartesian positions for atomA, 
+    at distance target_d from atomB (atomB is fixed).
+    """
+    posB = struct.cart_coords[atomB_idx]
+
+    candidates = []
+    for _ in range(n_candidates):
+        # Random direction using normal distribution
+        vec = np.random.normal(size=3)
+        vec /= np.linalg.norm(vec)  # normalize to unit vector
+
+        new_posA = posB + target_d * vec
+        candidates.append(new_posA)
+
+    return candidates
+
+
+### ---------- STEP 5: Translate Group ----------
+def translate_group(positions, old_ref, new_ref):
+    """
+    Translate a group of atoms so that old_ref goes to new_ref.
+    """
+    translation = new_ref - old_ref
+    return positions + translation
+
+
+### ---------- STEP 6: Export Final POSCAR ----------
+def update_structure(struct, indices, new_positions, output_file="POSCAR_final"):
+    for i, idx in enumerate(indices):
+        struct.replace(
+            idx,
+            struct[idx].species_string,
+            new_positions[i],
+            coords_are_cartesian=True
+        )
+    # Manually remove selective dynamics if present
+    for site in struct.sites:
+        if "selective_dynamics" in site.properties:
+            site.properties.pop("selective_dynamics", None)
+
+    Poscar(struct).write_file(output_file)
+
+
+
+### ---------- MAIN WORKFLOW ----------
+if __name__ == "__main__":
+    # 1. Merge + Translation
+    merged = merge_structures("./23_2/CONTCAR", "./CO2_molecule/CONTCAR", translation_vector=[0, 0, 0])
+
+    # 2. Select atoms (example: first 3 atoms from molecule part = 190, 191, 192 below)
+    selected_indices = [296,297,298]   # must be adapted
+    selected_positions = select_atoms(merged, selected_indices)
+
+    # 3. Rotate around 3rd atom
+    rotated_positions = rotate_atoms(selected_positions, pivot_index=2, axis='y', degree=80)
+
+    # 4. Distance constraint between atomA and fixed atomB
+    atomA_idx = 296
+    atomB_idx = 295
+    candidates = generate_distance_candidates(merged, atomA_idx, atomB_idx, target_d=2.5)
+
+    print("\nGenerated candidate new positions for atomA:")
+    for i, cand in enumerate(candidates):
+        print(f"  Candidate {i}: {cand}")
+
+    choice = input("\nDo you want to manually enter a position? (y/n): ").strip().lower()
+
+    if choice == "y":
+        manual_input = input("Enter Cartesian coordinates as x y z (separated by spaces): ")
+        new_ref = np.array([float(x) for x in manual_input.split()])
+
+        # Compute and print distance
+        posB = merged.cart_coords[atomB_idx]
+        dist = np.linalg.norm(new_ref - posB)
+        print(f"Distance between atomA (manual) and atomB: {dist:.3f} Å")
+    else:
+        idx = int(input(f"Choose candidate index (0 to {len(candidates)-1}): "))
+        new_ref = candidates[idx]
+
+    old_ref = merged.cart_coords[atomA_idx]
+
+    # 5. Translate whole molecule to desired distance
+    translated_positions = translate_group(rotated_positions, old_ref, new_ref)
+
+    # 6. Update structure and save
+    update_structure(merged, selected_indices, translated_positions, output_file="POSCAR final")
+    print("POSCAR final saved")
+
+
+
+
