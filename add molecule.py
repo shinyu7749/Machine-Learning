@@ -120,14 +120,14 @@ def update_structure(struct, indices, new_positions, output_file="POSCAR_final")
 ### ---------- MAIN WORKFLOW ----------
 if __name__ == "__main__":
     # 1. Merge + Translation
-    merged = merge_structures("./23_2/CONTCAR", "./CO2_molecule/CONTCAR", translation_vector=[0, 0, 0])
+    merged = merge_structures("./matrix/CONTCAR", "./gas_molecule/CONTCAR", translation_vector=[0, 0, 0])
 
-    # 2. Select atoms (example: first 3 atoms from molecule part = 190, 191, 192 below)
+    # 2. Select atoms (example: first 3 atoms from molecule part = 296,297,298 below)
     selected_indices = [296,297,298]   # must be adapted
     selected_positions = select_atoms(merged, selected_indices)
 
     # 3. Rotate around 3rd atom
-    rotated_positions = rotate_atoms(selected_positions, pivot_index=2, axis='y', degree=80)
+    rotated_positions = rotate_atoms(selected_positions, pivot_index=1, axis='y', degree=80)
 
     # 4. Distance constraint between atomA and fixed atomB
     atomA_idx = 296
@@ -158,8 +158,8 @@ if __name__ == "__main__":
     translated_positions = translate_group(rotated_positions, old_ref, new_ref)
 
     # 6. Update structure and save
-    update_structure(merged, selected_indices, translated_positions, output_file="POSCAR final")
-    print("POSCAR final saved")
+    update_structure(merged, selected_indices, translated_positions, output_file="POSCAR")
+    print("gas added POSCAR saved")
 
 
 
